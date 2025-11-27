@@ -451,49 +451,54 @@
     }
 
     // 🔹 HÀM ĐỌC DỮ LIỆU TỪ ARDUINO
-    async function readFromArduino() {
-        try {
-            while (arduinoPort && arduinoReader) {
-                const { value, done } = await arduinoReader.read();
-                if (done) {
-                    console.log("Arduino reader done");
-                    break;
-                }
-                
-                const message = new TextDecoder().decode(value).trim();
-                console.log("Nhận từ Arduino:", message);
-                
-                // 🔹 TỰ ĐỘNG KÍCH "OK" KHI NHẬN TÍN HIỆU
-                if (message.includes("PASS_DETECTED") || message.includes("PASS")) {
-                    console.log("🔄 Nhận tín hiệu PASS - Tự động kích OK...");
-                    setTimeout(autoClickOK, 500); // Chờ 0.5 giây rồi kích OK
-                }
+    // 🔹 HÀM ĐỌC DỮ LIỆU TỪ ARDUINO
+async function readFromArduino() {
+    try {
+        while (arduinoPort && arduinoReader) {
+            const { value, done } = await arduinoReader.read();
+            if (done) {
+                console.log("Arduino reader done");
+                break;
             }
-        } catch (error) {
-            console.error("Lỗi đọc dữ liệu Arduino:", error);
-            updateArduinoStatus("🔴 Arduino: Mất kết nối", "disconnected");
-        }
-    }
-
-    // 🔹 HÀM TỰ ĐỘNG NHẤN NÚT OK
-    function autoClickOK() {
-        // Kiểm tra xem đang ở màn hình chính không
-        if (document.getElementById("mainApp").style.display === "flex") {
-            const mahang = document.getElementById("mahang").value;
-            const qrcode = document.getElementById("qrcode").value;
             
-            if (mahang && qrcode) {
-                saveData('OK');
-                console.log("✅ Đã tự động nhấn OK!");
+            const message = new TextDecoder().decode(value).trim();
+            console.log("Nhận từ Arduino:", message);
+            
+            // 🔹 SỬA: CHỈ kiểm tra user đã login, KHÔNG kiểm tra tab active
+            if ((message.includes("PASS_DETECTED") || message.includes("PASS")) && 
+                currentUser && currentUser !== "") {
                 
-                // Hiển thị thông báo
-                showTempMessage("✅ Đã tự động nhấn OK!", "success");
-            } else {
-                console.log("⚠️ Chưa có mã hàng hoặc QR code");
-                showTempMessage("⚠️ Chưa có mã hàng hoặc QR code", "warning");
+                console.log("🔄 Nhận tín hiệu PASS - Tự động kích OK...");
+                setTimeout(autoClickOK, 500);
             }
         }
+    } catch (error) {
+        console.error("Lỗi đọc dữ liệu Arduino:", error);
+        updateArduinoStatus("🔴 Arduino: Mất kết nối", "disconnected");
     }
+}
+
+   // 🔹 HÀM TỰ ĐỘNG NHẤN NÚT OK
+function autoClickOK() {
+    // SỬA: Kiểm tra xem user đã đăng nhập chưa
+    if (currentUser && currentUser !== "") {
+        const mahang = document.getElementById("mahang").value;
+        const qrcode = document.getElementById("qrcode").value;
+        
+        if (mahang && qrcode) {
+            saveData('OK');
+            console.log("✅ Đã tự động nhấn OK!");
+            
+            // Hiển thị thông báo
+            showTempMessage("✅ Đã tự động nhấn OK!", "success");
+        } else {
+            console.log("⚠️ Chưa có mã hàng hoặc QR code");
+            showTempMessage("⚠️ Chưa có mã hàng hoặc QR code", "warning");
+        }
+    } else {
+        console.log("🔴 Chưa đăng nhập - Không xử lý tín hiệu Arduino");
+    }
+}
 
     // 🔹 HÀM HIỂN THỊ THÔNG BÁO TẠM THỜI
     function showTempMessage(message, type) {
@@ -546,7 +551,7 @@
     // 🔹 THÊM SỰ KIỆN BÀN PHÍM ĐỂ NHẬN TÍN HIỆU TỪ PHẦN MỀM TEST
     document.addEventListener('keydown', function(event) {
         // Nhận tổ hợp phím Ctrl+Shift+P (tín hiệu PASS từ Python)
-        if (event.ctrlKey && event.shiftKey && event.key === 'P') {
+       if (event.ctrlKey && event.altKey && event.key === 'P') {
             event.preventDefault(); // Ngăn hành động mặc định
             
             console.log("🎯 Nhận tín hiệu PASS từ phần mềm test");
@@ -560,48 +565,46 @@
         }
         
         // 🔹 THÊM PHÍM TẮT THỦ CÔNG: Alt+O để nhấn OK
-        if (event.altKey && event.key === 'o') {
-            event.preventDefault();
-            if (document.getElementById("mainApp").style.display === "flex") {
-                saveData('OK');
-                console.log("✅ Đã nhấn OK bằng phím tắt");
-                showTempMessage("✅ Đã nhấn OK bằng phím tắt", "success");
-            }
-        }
-    });
-
-    // 🔹 HÀM TỰ ĐỘNG NHẤN OK KHI NHẬN TÍN HIỆU TỪ PHẦN MỀM
-    function autoClickOKFromSoftware() {
-        // Kiểm tra xem đang ở màn hình chính không
-        if (document.getElementById("mainApp").style.display === "flex") {
-            const mahang = document.getElementById("mahang").value;
-            const qrcode = document.getElementById("qrcode").value;
-            
-            if (mahang && qrcode) {
-                saveData('OK');
-                console.log("✅ Đã tự động nhấn OK từ tín hiệu phần mềm test!");
-                
-                // Hiển thị thông báo
-                showTempMessage("✅ Tự động OK từ phần mềm test", "success");
-            } else {
-                console.log("⚠️ Chưa có mã hàng hoặc QR code");
-                showTempMessage("⚠️ Chưa có mã hàng hoặc QR code", "warning");
-                
-                // 🔹 TỰ ĐỘNG FOCUS VÀO Ô QR CODE ĐỂ NGƯỜI DÙNG QUÉT
-                setTimeout(() => {
-                    const qrInput = document.getElementById("qrcode");
-                    if (qrInput) {
-                        qrInput.focus();
-                        qrInput.select();
-                    }
-                }, 500);
-            }
-        } else {
-            console.log("⚠️ Chưa đăng nhập vào app");
-            showTempMessage("⚠️ Vui lòng đăng nhập trước", "warning");
-        }
+       // 🔹 THÊM PHÍM TẮT THỦ CÔNG: Alt+O để nhấn OK
+if (event.altKey && event.key === 'o') {
+    event.preventDefault();
+    if (currentUser && currentUser !== "") {
+        saveData('OK');
+        console.log("✅ Đã nhấn OK bằng phím tắt");
+        showTempMessage("✅ Đã nhấn OK bằng phím tắt", "success");
     }
-
+}
+    // 🔹 HÀM TỰ ĐỘNG NHẤN OK KHI NHẬN TÍN HIỆU TỪ PHẦN MỀM
+function autoClickOKFromSoftware() {
+    // SỬA: Kiểm tra trạng thái đăng nhập
+    if (currentUser && currentUser !== "") {
+        const mahang = document.getElementById("mahang").value;
+        const qrcode = document.getElementById("qrcode").value;
+        
+        if (mahang && qrcode) {
+            saveData('OK');
+            console.log("✅ Đã tự động nhấn OK từ tín hiệu phần mềm test!");
+            
+            // Hiển thị thông báo
+            showTempMessage("✅ Tự động OK từ phần mềm test", "success");
+        } else {
+            console.log("⚠️ Chưa có mã hàng hoặc QR code");
+            showTempMessage("⚠️ Chưa có mã hàng hoặc QR code", "warning");
+            
+            // 🔹 TỰ ĐỘNG FOCUS VÀO Ô QR CODE ĐỂ NGƯỜI DÙNG QUÉT
+            setTimeout(() => {
+                const qrInput = document.getElementById("qrcode");
+                if (qrInput) {
+                    qrInput.focus();
+                    qrInput.select();
+                }
+            }, 500);
+        }
+    } else {
+        console.log("⚠️ Chưa đăng nhập vào app");
+        showTempMessage("⚠️ Vui lòng đăng nhập trước", "warning");
+    }
+}
     // 🔹 HÀM CẬP NHẬT TRẠNG THÁI PHẦN MỀM TEST
     function updateSoftwareStatus(message, status) {
         const statusElement = document.getElementById("softwareStatus");
