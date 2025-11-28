@@ -176,17 +176,17 @@
           <button id="clearLogBtn" onclick="clearLogDisplay()">Xóa log</button>
           <button id="resetDataBtn" onclick="resetAllData()">Reset dữ liệu</button>
 
-          <!-- THÊM NÚT ARDUINO -->
+          <!-- NÚT ARDUINO -->
           <button id="connectArduinoBtn" onclick="connectToArduino()" style="background: #9b59b6; color: white; margin: 5px;">
             🔌 Kết nối Arduino
           </button>
           
-          <!-- THÊM TRẠNG THÁI KẾT NỐI -->
+          <!-- TRẠNG THÁI KẾT NỐI -->
           <div id="arduinoStatus" class="arduino-status arduino-disconnected">
             🔴 Arduino: Chưa kết nối
           </div>
 
-          <!-- THÊM PHẦN MỀM TEST -->
+          <!-- PHẦN MỀM TEST -->
           <div id="softwareTestSection" style="margin: 15px 0; padding: 10px; background: #f8f9fa; border-radius: 5px;">
             <h4>🎯 Phần mềm Test</h4>
             
@@ -283,7 +283,7 @@
         
           <p id="error"></p>
 
-          <!-- Thêm thông báo trạng thái đồng bộ -->
+          <!-- Thông báo trạng thái đồng bộ -->
           <div id="syncStatus" class="sync-status"></div>
 
           <div>
@@ -385,11 +385,9 @@
           <tbody id="clusterize-content" class="clusterize-content"></tbody>
         </table>
 
-        <!-- ✅ Bắt buộc phải nằm TRONG scrollArea, ngay dưới bảng -->
         <div id="clusterize-scroll" class="clusterize-scroll"></div>
       </div>
 
-      <!-- Dòng này nằm ngoài để hiển thị tổng số dòng -->
       <div id="recordCount" style="margin-top:5px; font-weight:bold;"></div>
     </div>
       
@@ -412,17 +410,17 @@
   </div>
 
   <script>
-    // ===== PHẦN KẾT NỐI ARDUINO =====
+    // ===== BIẾN TOÀN CỤC =====
     let arduinoPort = null;
     let arduinoReader = null;
     let arduinoWriter = null;
-
-    // 🔹 HÀM KẾT NỐI ARDUINO QUA WEB SERIAL
+    let isProcessingArduino = false;
+    
+    // ===== KẾT NỐI ARDUINO =====
     async function connectToArduino() {
         try {
             updateArduinoStatus("🟡 Đang kết nối...", "connecting");
             
-            // Yêu cầu quyền truy cập cổng serial
             const port = await navigator.serial.requestPort();
             await port.open({ baudRate: 9600 });
             
@@ -433,7 +431,6 @@
             updateArduinoStatus("✅ Arduino: Đã kết nối", "connected");
             console.log("✅ Đã kết nối với Arduino!");
             
-            // 🔹 BẮT ĐẦU ĐỌC DỮ LIỆU TỪ ARDUINO
             readFromArduino();
             
         } catch (error) {
@@ -449,58 +446,186 @@
             }
         }
     }
-
-    // 🔹 HÀM ĐỌC DỮ LIỆU TỪ ARDUINO
-    // 🔹 HÀM ĐỌC DỮ LIỆU TỪ ARDUINO
+// ===== HÀM XÁC THỰC TÍN HIỆU ARDUINO =====
+function authenticateArduinoSignal(message) {
+    // 🔐 CHỈ CHẤP NHẬN TÍN HIỆU CÓ ĐỊNH DẠNG: TESTAPP_PASS_xxx
+    // Trong đó xxx là số bất kỳ (timestamp từ Arduino)
+    const pattern = /^TESTAPP_PASS_\d+$/;
+    return pattern.test(message);
+}
+    // ===== HÀM ĐỌC ARDUINO CÓ XÁC THỰC =====
 async function readFromArduino() {
     try {
         while (arduinoPort && arduinoReader) {
             const { value, done } = await arduinoReader.read();
-            if (done) {
-                console.log("Arduino reader done");
-                break;
-            }
+            if (done) break;
             
             const message = new TextDecoder().decode(value).trim();
             console.log("Nhận từ Arduino:", message);
             
-            // 🔹 SỬA: CHỈ kiểm tra user đã login, KHÔNG kiểm tra tab active
-            if ((message.includes("PASS_DETECTED") || message.includes("PASS")) && 
-                currentUser && currentUser !== "") {
+            // 🔐 CHỈ XỬ LÝ TÍN HIỆU ĐÃ XÁC THỰC
+            if (authenticateArduinoSignal(message) && 
+                currentUser && currentUser !== "" &&
+                !isProcessingArduino) {
                 
-                console.log("🔄 Nhận tín hiệu PASS - Tự động kích OK...");
-                setTimeout(autoClickOK, 500);
+                console.log("🔐 Nhận tín hiệu Arduino đã xác thực - Tự động kích OK...");
+                isProcessingArduino = true;
+                setTimeout(() => {
+                    autoClickOK();
+                    isProcessingArduino = false;
+                }, 500);
+            } else if (message.includes("PASS")) {
+                console.log("🚫 Tín hiệu không xác thực - bỏ qua");
             }
         }
     } catch (error) {
         console.error("Lỗi đọc dữ liệu Arduino:", error);
         updateArduinoStatus("🔴 Arduino: Mất kết nối", "disconnected");
+        isProcessingArduino = false;
     }
 }
 
-   // 🔹 HÀM TỰ ĐỘNG NHẤN NÚT OK
+    // ===== HÀM TỰ ĐỘNG OK CHO ARDUINO =====
+// ===== HÀM TỰ ĐỘNG OK CHO ARDUINO =====
 function autoClickOK() {
-    // SỬA: Kiểm tra xem user đã đăng nhập chưa
     if (currentUser && currentUser !== "") {
         const mahang = document.getElementById("mahang").value;
         const qrcode = document.getElementById("qrcode").value;
         
         if (mahang && qrcode) {
             saveData('OK');
-            console.log("✅ Đã tự động nhấn OK!");
+            console.log("✅ Đã tự động nhấn OK từ Arduino!");
+            showTempMessage("✅ Tự động OK từ Arduino", "success");
             
-            // Hiển thị thông báo
-            showTempMessage("✅ Đã tự động nhấn OK!", "success");
+            // Tự động xóa và chuẩn bị cho lần quét tiếp
+            setTimeout(() => {
+                document.getElementById("qrcode").value = "";
+                document.getElementById("loi").value = "";
+                document.getElementById("ghichu").value = "";
+                
+                // Focus lại ô QR code
+                document.getElementById("qrcode").focus();
+            }, 300);
+            
         } else {
             console.log("⚠️ Chưa có mã hàng hoặc QR code");
             showTempMessage("⚠️ Chưa có mã hàng hoặc QR code", "warning");
         }
-    } else {
-        console.log("🔴 Chưa đăng nhập - Không xử lý tín hiệu Arduino");
     }
 }
+    function updateArduinoStatus(message, status) {
+        const statusElement = document.getElementById("arduinoStatus");
+        if (statusElement) {
+            statusElement.textContent = message;
+            statusElement.className = `arduino-status arduino-${status}`;
+        }
+    }
 
-    // 🔹 HÀM HIỂN THỊ THÔNG BÁO TẠM THỜI
+    async function disconnectArduino() {
+        if (arduinoReader) {
+            await arduinoReader.cancel();
+            arduinoReader = null;
+        }
+        if (arduinoWriter) {
+            await arduinoWriter.close();
+            arduinoWriter = null;
+        }
+        if (arduinoPort) {
+            await arduinoPort.close();
+            arduinoPort = null;
+        }
+        updateArduinoStatus("🔴 Arduino: Đã ngắt kết nối", "disconnected");
+    }
+
+    // ===== PHẦN MỀM TEST =====
+    function autoClickOKFromSoftware() {
+        console.log("🔄 autoClickOKFromSoftware được gọi");
+        
+        if (currentUser && currentUser !== "") {
+            const mahang = document.getElementById("mahang").value;
+            const qrcode = document.getElementById("qrcode").value;
+            
+            console.log("Mã hàng:", mahang, "QR Code:", qrcode);
+            
+            if (mahang && qrcode) {
+                saveData('OK');
+                console.log("✅ Đã tự động nhấn OK từ tín hiệu phần mềm test!");
+                
+                showTempMessage("✅ Tự động OK từ phần mềm test", "success");
+            } else {
+                console.log("⚠️ Chưa có mã hàng hoặc QR code");
+                showTempMessage("⚠️ Chưa có mã hàng hoặc QR code", "warning");
+                
+                setTimeout(() => {
+                    const qrInput = document.getElementById("qrcode");
+                    if (qrInput) {
+                        qrInput.focus();
+                        qrInput.select();
+                    }
+                }, 500);
+            }
+        } else {
+            console.log("⚠️ Chưa đăng nhập vào app");
+            showTempMessage("⚠️ Vui lòng đăng nhập trước", "warning");
+        }
+    }
+
+    function updateSoftwareStatus(message, status) {
+        const statusElement = document.getElementById("softwareStatus");
+        if (statusElement) {
+            statusElement.textContent = message;
+            statusElement.className = `software-test-status ${status}`;
+        }
+    }
+
+    function testSoftwareSignal() {
+        console.log("🧪 Đang test tín hiệu phần mềm...");
+        updateSoftwareStatus("🧪 Đang test...", "software-waiting");
+        
+        setTimeout(() => {
+            autoClickOKFromSoftware();
+            updateSoftwareStatus("✅ Test hoàn tất", "software-ready");
+        }, 1000);
+    }
+
+    // ===== SỰ KIỆN BÀN PHÍM =====
+    document.addEventListener('keydown', function(event) {
+        console.log("Phím nhấn:", event.key, "Ctrl:", event.ctrlKey, "Shift:", event.shiftKey, "Alt:", event.altKey);
+        
+        // ✅ Tín hiệu PASS từ phần mềm - Ctrl+Shift+P
+        if (event.ctrlKey && event.shiftKey && event.key === 'P') {
+            event.preventDefault();
+            
+            console.log("🎯 Nhận tín hiệu PASS từ phần mềm test - Ctrl+Shift+P");
+            updateSoftwareStatus("🔄 Đang xử lý tín hiệu...", "software-waiting");
+            
+            setTimeout(() => {
+                autoClickOKFromSoftware();
+                updateSoftwareStatus("✅ Đã xử lý xong", "software-ready");
+            }, 500);
+        }
+        
+        // 🔹 PHÍM TẮT THỦ CÔNG: Alt+O để nhấn OK
+        if (event.altKey && event.key === 'O') {
+            event.preventDefault();
+            console.log("🎯 Nhấn OK thủ công - Alt+O");
+            if (currentUser && currentUser !== "") {
+                saveData('OK');
+                console.log("✅ Đã nhấn OK bằng phím tắt");
+                showTempMessage("✅ Đã nhấn OK bằng phím tắt", "success");
+            }
+        }
+    });
+
+    // Chặn Enter trong ô QR code để tránh xung đột
+    document.getElementById("qrcode").addEventListener("keydown", function(event) {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            console.log("Enter bị chặn - chờ tín hiệu Arduino hoặc nhấn nút OK");
+        }
+    });
+
+    // ===== HÀM HIỂN THỊ THÔNG BÁO =====
     function showTempMessage(message, type) {
         const tempDiv = document.createElement("div");
         tempDiv.textContent = message;
@@ -520,121 +645,13 @@ function autoClickOK() {
         setTimeout(() => tempDiv.remove(), 3000);
     }
 
-    // 🔹 HÀM CẬP NHẬT TRẠNG THÁI KẾT NỐI
-    function updateArduinoStatus(message, status) {
-        const statusElement = document.getElementById("arduinoStatus");
-        if (statusElement) {
-            statusElement.textContent = message;
-            statusElement.className = `arduino-status arduino-${status}`;
-        }
-    }
-
-    // 🔹 HÀM NGẮT KẾT NỐI ARDUINO
-    async function disconnectArduino() {
-        if (arduinoReader) {
-            await arduinoReader.cancel();
-            arduinoReader = null;
-        }
-        if (arduinoWriter) {
-            await arduinoWriter.close();
-            arduinoWriter = null;
-        }
-        if (arduinoPort) {
-            await arduinoPort.close();
-            arduinoPort = null;
-        }
-        updateArduinoStatus("🔴 Arduino: Đã ngắt kết nối", "disconnected");
-    }
-
-    // ===== PHẦN TÍCH HỢP PHẦN MỀM TEST =====
-
-    // 🔹 THÊM SỰ KIỆN BÀN PHÍM ĐỂ NHẬN TÍN HIỆU TỪ PHẦN MỀM TEST
-    document.addEventListener('keydown', function(event) {
-        // Nhận tổ hợp phím Ctrl+Shift+P (tín hiệu PASS từ Python)
-       if (event.ctrlKey && event.altKey && event.key === 'P') {
-            event.preventDefault(); // Ngăn hành động mặc định
-            
-            console.log("🎯 Nhận tín hiệu PASS từ phần mềm test");
-            updateSoftwareStatus("🔄 Đang xử lý tín hiệu...", "software-waiting");
-            
-            // Tự động kích nút OK
-            setTimeout(() => {
-                autoClickOKFromSoftware();
-                updateSoftwareStatus("✅ Đã xử lý xong", "software-ready");
-            }, 500);
-        }
-        
-        // 🔹 THÊM PHÍM TẮT THỦ CÔNG: Alt+O để nhấn OK
-       // 🔹 THÊM PHÍM TẮT THỦ CÔNG: Alt+O để nhấn OK
-if (event.altKey && event.key === 'o') {
-    event.preventDefault();
-    if (currentUser && currentUser !== "") {
-        saveData('OK');
-        console.log("✅ Đã nhấn OK bằng phím tắt");
-        showTempMessage("✅ Đã nhấn OK bằng phím tắt", "success");
-    }
-}
-});
-    // 🔹 HÀM TỰ ĐỘNG NHẤN OK KHI NHẬN TÍN HIỆU TỪ PHẦN MỀM
-function autoClickOKFromSoftware() {
-    // SỬA: Kiểm tra trạng thái đăng nhập
-    if (currentUser && currentUser !== "") {
-        const mahang = document.getElementById("mahang").value;
-        const qrcode = document.getElementById("qrcode").value;
-        
-        if (mahang && qrcode) {
-            saveData('OK');
-            console.log("✅ Đã tự động nhấn OK từ tín hiệu phần mềm test!");
-            
-            // Hiển thị thông báo
-            showTempMessage("✅ Tự động OK từ phần mềm test", "success");
-        } else {
-            console.log("⚠️ Chưa có mã hàng hoặc QR code");
-            showTempMessage("⚠️ Chưa có mã hàng hoặc QR code", "warning");
-            
-            // 🔹 TỰ ĐỘNG FOCUS VÀO Ô QR CODE ĐỂ NGƯỜI DÙNG QUÉT
-            setTimeout(() => {
-                const qrInput = document.getElementById("qrcode");
-                if (qrInput) {
-                    qrInput.focus();
-                    qrInput.select();
-                }
-            }, 500);
-        }
-    } else {
-        console.log("⚠️ Chưa đăng nhập vào app");
-        showTempMessage("⚠️ Vui lòng đăng nhập trước", "warning");
-    }
-}
-    // 🔹 HÀM CẬP NHẬT TRẠNG THÁI PHẦN MỀM TEST
-    function updateSoftwareStatus(message, status) {
-        const statusElement = document.getElementById("softwareStatus");
-        if (statusElement) {
-            statusElement.textContent = message;
-            statusElement.className = `software-test-status ${status}`;
-        }
-    }
-
-    // 🔹 HÀM TEST TÍN HIỆU PHẦN MỀM
-    function testSoftwareSignal() {
-        console.log("🧪 Đang test tín hiệu phần mềm...");
-        updateSoftwareStatus("🧪 Đang test...", "software-waiting");
-        
-        // Mô phỏng nhận tín hiệu từ phần mềm test
-        setTimeout(() => {
-            autoClickOKFromSoftware();
-            updateSoftwareStatus("✅ Test hoàn tất", "software-ready");
-        }, 1000);
-    }
-
-    // ===== HÀM QUẢN LÝ TAB =====
+    // ===== QUẢN LÝ TAB =====
     function showTab(n) {
       document.querySelectorAll('.tab-buttons button').forEach(b => b.classList.remove('active'));
       document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
       document.getElementById('btnTab' + n).classList.add('active');
       document.getElementById('tab' + n).classList.add('active');
       
-      // 🔥 THÊM: Khi chuyển sang tab 3, vẽ biểu đồ với dữ liệu hiện tại
       if (n === 3) {
         setTimeout(() => {
           const dataToUse = filteredDataGlobal.length > 0 ? filteredDataGlobal : allData;
@@ -643,47 +660,45 @@ function autoClickOKFromSoftware() {
         }, 100);
       }
       
-      // ✅ Chỉ tải lại từ Google khi người dùng thật sự bấm nút "Tải từ Google Sheets"
       if (n === 2 && !window.preventAutoReload) {
         reloadFromGoogle();
       }
     }
 
     // ===== PHẦN PHÁN ĐỊNH SẢN PHẨM =====
-    /* ===== Data & users ===== */
     const users = {
       "5035": "123456",
-      "5624": "562411", // THANH
-      "5814": "241012", // THƯƠNG
-      "4549": "130417", // HÒA
-      "5372": "537211", // KHÁNH
-      "5171": "517111", // NGA
-      "5651": "565111", // CHAU
-      "5531": "553111", // GIANG
-      "5019": "501911", // GIANG
+      "5624": "562411",
+      "5814": "241012",
+      "4549": "130417",
+      "5372": "537211",
+      "5171": "517111",
+      "5651": "565111",
+      "5531": "553111",
+      "5019": "501911",
     };
-    // Quy định số ký tự tối đa cho từng mã hàng
-      const maxLengthByProduct = {
-   "ECM-2583-236": 20,
-  "ECM-2583-164": 20,
-  "ECM-2300": 15,
-  "ECM-2310": 15,
-  "IZ-1-R3": 48,
-  "RM-4K-R3": 48,
-  "AM-4-R3": 48,
-  "P-7937": 15,
-  "P-8105": 15,
-  "P-8149": 15,
-  "BMS 85AH": 27,
-  "BMS 57AH": 27,
-  "CONTROLLER": 27,
-  "CAS NEMO": 12,
-  "CAS MINI-DI": 15,
-  "CAS MINI-485": 15,
-  "BN 2573A": 12,
-  "OEM": 20
+
+    const maxLengthByProduct = {
+      "ECM-2583-236": 20,
+      "ECM-2583-164": 20,
+      "ECM-2300": 15,
+      "ECM-2310": 15,
+      "IZ-1-R3": 48,
+      "RM-4K-R3": 48,
+      "AM-4-R3": 48,
+      "P-7937": 15,
+      "P-8105": 15,
+      "P-8149": 15,
+      "BMS 85AH": 27,
+      "BMS 57AH": 27,
+      "CONTROLLER": 27,
+      "CAS NEMO": 12,
+      "CAS MINI-DI": 15,
+      "CAS MINI-485": 15,
+      "BN 2573A": 12,
+      "OEM": 20
     };
-    // records[0] là header
+
     let records = [["Mã hàng","QR Code","Kết quả","Lỗi","Giờ","Ngày","Số lần xuất hiện","Người kiểm tra","Ca","WO","Ghi chú","Synced"]];
     let qrCounter = {};
     let currentUser = "";
@@ -692,8 +707,8 @@ function autoClickOKFromSoftware() {
     let okCount = 0, ngCount = 0;
     let chart;
 
-    let deliveryTarget = 0;    // số lượng giao cần đạt
-    let deliveryCounter = 0;   // số QR code đã quét trong đợt
+    let deliveryTarget = 0;
+    let deliveryCounter = 0;
 
     // Load từ localStorage
     if (localStorage.getItem("records")) {
@@ -715,60 +730,49 @@ function autoClickOKFromSoftware() {
       }
     }
 
-    /* ===== Utility ===== */
-    function findLastRecordIndex(qrcode) {
-      for (let i = records.length - 1; i >= 1; i--) {
-        if (records[i][1] === qrcode) return i;
+    function updateQRCodeMaxLength() {
+      const mahang = document.getElementById("mahang").value;
+      const infoElement = document.getElementById("qrcodeLengthInfo");
+      
+      if (mahang && maxLengthByProduct[mahang]) {
+        const maxLength = maxLengthByProduct[mahang];
+        infoElement.textContent = `QR Code tối đa ${maxLength} ký tự`;
+        infoElement.style.color = "#27ae60";
+      } else {
+        infoElement.textContent = "";
       }
-      return -1;
     }
 
-  function updateQRCodeMaxLength() {
-  const mahang = document.getElementById("mahang").value;
-  const infoElement = document.getElementById("qrcodeLengthInfo");
-  
-  if (mahang && maxLengthByProduct[mahang]) {
-    const maxLength = maxLengthByProduct[mahang];
-    infoElement.textContent = `QR Code tối đa ${maxLength} ký tự`;
-    infoElement.style.color = "#27ae60";
-  } else {
-    infoElement.textContent = "";
-  }
- }
     function recomputeCountsForShift(shift) {
-  let ok = 0, ng = 0;
-  
-  // Lấy kết quả mới nhất cho mỗi QR code
-  const latestResults = {};
-  
-  for (let i = 1; i < records.length; i++) {
-    const row = records[i];
-    if (row[8] === shift) {
-      const qrcode = row[1];
-      // Chỉ lấy kết quả mới nhất cho mỗi QR code
-      if (!latestResults[qrcode] || i > latestResults[qrcode].index) {
-        latestResults[qrcode] = {
-          result: row[2],
-          index: i
-        };
+      let ok = 0, ng = 0;
+      
+      const latestResults = {};
+      
+      for (let i = 1; i < records.length; i++) {
+        const row = records[i];
+        if (row[8] === shift) {
+          const qrcode = row[1];
+          if (!latestResults[qrcode] || i > latestResults[qrcode].index) {
+            latestResults[qrcode] = {
+              result: row[2],
+              index: i
+            };
+          }
+        }
       }
+      
+      for (const qrcode in latestResults) {
+        if (latestResults[qrcode].result === "OK") ok++;
+        else if (latestResults[qrcode].result === "NG") ng++;
+      }
+      
+      okCount = ok; 
+      ngCount = ng;
+      document.getElementById("okCount").textContent = okCount;
+      document.getElementById("ngCount").textContent = ngCount;
+      updateChart();
     }
-  }
-  
-  // Đếm counts từ kết quả mới nhất
-  for (const qrcode in latestResults) {
-    if (latestResults[qrcode].result === "OK") ok++;
-    else if (latestResults[qrcode].result === "NG") ng++;
-  }
-  
-  okCount = ok; 
-  ngCount = ng;
-  document.getElementById("okCount").textContent = okCount;
-  document.getElementById("ngCount").textContent = ngCount;
-  updateChart();
-}
 
-    /* ===== Login ===== */
     function login() {
       const uRaw = document.getElementById("loginUser").value.trim();
       const p = document.getElementById("loginPass").value.trim();
@@ -797,9 +801,7 @@ function autoClickOKFromSoftware() {
       }
     }
 
-    /* ===== Save / Update log ===== */
     function saveData(result) {
-      // 🔹 Kiểm tra số lượng giao
       if (deliveryTarget === 0) {
         alert("⚠️ Vui lòng nhập SỐ LƯỢNG GIAO trước khi quét!");
         return;
@@ -820,14 +822,14 @@ function autoClickOKFromSoftware() {
         return;
       }
       
-     // 🔹 KIỂM TRA SỐ KÝ TỰ THEO MÃ HÀNG
-    const maxLength = maxLengthByProduct[mahang];
-    if (maxLength && qrcode.length > maxLength) {
-      alert(`⚠️ QR Code cho mã hàng ${mahang} vượt quá ${maxLength} ký tự! Vui lòng quét lại!`);
-      document.getElementById("qrcode").value = "";
-      document.getElementById("qrcode").focus();
-      return;
-    }
+      const maxLength = maxLengthByProduct[mahang];
+      if (maxLength && qrcode.length > maxLength) {
+        alert(`⚠️ QR Code cho mã hàng ${mahang} vượt quá ${maxLength} ký tự! Vui lòng quét lại!`);
+        document.getElementById("qrcode").value = "";
+        document.getElementById("qrcode").focus();
+        return;
+      }
+
       document.getElementById("error").textContent = "";
 
       qrCounter[qrcode] = (qrCounter[qrcode] || 0) + 1;
@@ -835,8 +837,6 @@ function autoClickOKFromSoftware() {
       const gio = now.toLocaleTimeString("vi-VN");
       const ngay = now.toLocaleDateString("vi-VN");
 
-      // 🔹 THAY ĐỔI: Luôn thêm bản ghi mới, không xóa bản ghi cũ
-      // Tìm tất cả bản ghi cũ để cập nhật counts
       let oldOkCount = 0, oldNgCount = 0;
       for (let i = 1; i < records.length; i++) {
         if (records[i][1] === qrcode) {
@@ -845,27 +845,25 @@ function autoClickOKFromSoftware() {
         }
       }
 
-      // Cập nhật counts (trừ đi counts cũ, cộng thêm counts mới)
       okCount = okCount - oldOkCount;
       ngCount = ngCount - oldNgCount;
       
       if (result === "OK") okCount++;
       else ngCount++;
 
-      // 🔹 THAY ĐỔI: Luôn thêm bản ghi mới (không xóa bản ghi cũ)
       records.push([
-      mahang,
-      qrcode,
-      result,
-      loi,
-      gio,
-      ngay,
-      qrCounter[qrcode],
-      currentUser,
-      currentShift,
-      currentWO,
-      ghichu,
-      false // 🔹 chưa đồng bộ
+        mahang,
+        qrcode,
+        result,
+        loi,
+        gio,
+        ngay,
+        qrCounter[qrcode],
+        currentUser,
+        currentShift,
+        currentWO,
+        ghichu,
+        false
       ]);
 
       saveLocal();
@@ -889,7 +887,6 @@ function autoClickOKFromSoftware() {
         document.getElementById("deliveryStatus").textContent = "";
       }
 
-      // Tự động focus vào ô QR code
       const qEl = document.getElementById("qrcode");
       if (qEl) {
         qEl.focus();
@@ -897,70 +894,64 @@ function autoClickOKFromSoftware() {
       }
       syncToSheet();
     }
-    /* ===== Render bảng ===== */
-function renderTable() {
-  const tbody = document.getElementById("logTable").getElementsByTagName("tbody")[0];
-  tbody.innerHTML = "";
 
-  const search = document.getElementById("searchBox").value.toLowerCase();
-  const filterRes = document.getElementById("filterResult").value;
+    function renderTable() {
+      const tbody = document.getElementById("logTable").getElementsByTagName("tbody")[0];
+      tbody.innerHTML = "";
 
-  // 🔹 Duyệt ngược để bản ghi mới nhất hiển thị trên đầu
-  for (let i = records.length - 1; i >= 1; i--) {
-    const rowData = records[i];
-    
-    if (search && !rowData[0].toLowerCase().includes(search) && !rowData[1].toLowerCase().includes(search)) continue;
-    if (filterRes && rowData[2] !== filterRes) continue;
+      const search = document.getElementById("searchBox").value.toLowerCase();
+      const filterRes = document.getElementById("filterResult").value;
 
-    const tr = tbody.insertRow();
-    
-    // 🔹 THAY ĐỔI: Xác định màu nền theo kết quả
-    let bgColor = "white";
-    if (rowData[2] === "NG") {
-      bgColor = "red";   // đỏ tươi cho NG
-    } else if (rowData[2] === "OK") {
-      // Kiểm tra nếu đây là bản ghi OK sau khi đã có NG
-      const hasPreviousNG = checkIfHasPreviousNG(rowData[1], i);
-      if (hasPreviousNG) {
-        bgColor = "#27ae60"; // Xanh nhạt cho OK sau NG
-      } else {
-        bgColor = "white"; // Trắng cho OK thông thường
+      for (let i = records.length - 1; i >= 1; i--) {
+        const rowData = records[i];
+        
+        if (search && !rowData[0].toLowerCase().includes(search) && !rowData[1].toLowerCase().includes(search)) continue;
+        if (filterRes && rowData[2] !== filterRes) continue;
+
+        const tr = tbody.insertRow();
+        
+        let bgColor = "white";
+        if (rowData[2] === "NG") {
+          bgColor = "red";
+        } else if (rowData[2] === "OK") {
+          const hasPreviousNG = checkIfHasPreviousNG(rowData[1], i);
+          if (hasPreviousNG) {
+            bgColor = "#27ae60";
+          } else {
+            bgColor = "white";
+          }
+        }
+        tr.style.backgroundColor = bgColor;
+
+        for (let j = 0; j < 11; j++) {
+          const td = tr.insertCell();
+          td.textContent = rowData[j] || "";
+        }
+
+        const tdDel = tr.insertCell();
+        const btn = document.createElement("button");
+        btn.textContent = "Xóa";
+        btn.style.background = "#e74c3c";
+        btn.style.color = "white";
+        btn.style.border = "none";
+        btn.style.padding = "4px 8px";
+        btn.style.borderRadius = "4px";
+        btn.onclick = () => deleteRecord(i);
+        tdDel.appendChild(btn);
+
+        if ((rowData[6] || 0) > 1) tr.classList.add("duplicate");
       }
     }
-    tr.style.backgroundColor = bgColor;
 
-    // Tạo 11 cột dữ liệu
-    for (let j = 0; j < 11; j++) {
-      const td = tr.insertCell();
-      td.textContent = rowData[j] || "";
+    function checkIfHasPreviousNG(qrcode, currentIndex) {
+      for (let i = currentIndex - 1; i >= 1; i--) {
+        if (records[i][1] === qrcode && records[i][2] === "NG") {
+          return true;
+        }
+      }
+      return false;
     }
 
-    // Thêm cột nút xóa (cột thứ 12)
-    const tdDel = tr.insertCell();
-    const btn = document.createElement("button");
-    btn.textContent = "Xóa";
-    btn.style.background = "#e74c3c";
-    btn.style.color = "white";
-    btn.style.border = "none";
-    btn.style.padding = "4px 8px";
-    btn.style.borderRadius = "4px";
-    btn.onclick = () => deleteRecord(i);
-    tdDel.appendChild(btn);
-
-    if ((rowData[6] || 0) > 1) tr.classList.add("duplicate");
-  }
-}
-
-// 🔹 THÊM HÀM MỚI: Kiểm tra nếu QR code này đã có bản ghi NG trước đó
-function checkIfHasPreviousNG(qrcode, currentIndex) {
-  for (let i = currentIndex - 1; i >= 1; i--) {
-    if (records[i][1] === qrcode && records[i][2] === "NG") {
-      return true;
-    }
-  }
-  return false;
-}
-    /* ===== Lưu local ===== */
     function saveLocal() {
       try {
         localStorage.setItem("records", JSON.stringify(records));
@@ -970,7 +961,6 @@ function checkIfHasPreviousNG(qrcode, currentIndex) {
       }
     }
 
-    /* ===== Xuất CSV ===== */
     function exportCSV() {
       if (!currentShift || !currentWO) {
         alert("⚠️ Vui lòng đăng nhập và chọn ca + WO trước khi xuất file!");
@@ -1011,22 +1001,19 @@ function checkIfHasPreviousNG(qrcode, currentIndex) {
       }
     }
 
-    /* ===== Sync Google Sheets ===== */
     function syncToSheet() {
       const sheetUrl = "https://script.google.com/macros/s/AKfycbwGCEDo7faBhEh9FCv1ZlrfINyAvfwIg9EbXk-CqwZRYBKVOQJP2hIGjI02JbeWIYJC5A/exec"; 
       
-      // 🔹 THAY ĐỔI: Gửi toàn bộ records (bao gồm cả ghi chú)
       const dataToSend = records
       .slice(1)
-      .filter(r => !r[11]); // 🔹 chỉ lấy dòng chưa sync
-
+      .filter(r => !r[11]);
 
       if (dataToSend.length === 0) {
         alert("⚠️ Không có dữ liệu để đồng bộ!");
         return;
       }
 
-      console.log("Dữ liệu gửi lên Google Sheets:", dataToSend); // Debug
+      console.log("Dữ liệu gửi lên Google Sheets:", dataToSend);
 
       fetch(sheetUrl, {
         method: "POST",
@@ -1037,7 +1024,6 @@ function checkIfHasPreviousNG(qrcode, currentIndex) {
       .then(() => {
       alert("✅ Đã gửi dữ liệu lên Google Sheets");
 
-      // 🔹 Đánh dấu các dòng đã gửi
       records = records.map(r => {
         if (r[11] === false) r[11] = true;
         return r;
@@ -1046,13 +1032,12 @@ function checkIfHasPreviousNG(qrcode, currentIndex) {
 
       console.log("Đã đánh dấu synced:", records);
     })
-
       .catch(err => {
         alert("❌ Lỗi đồng bộ: " + err);
         console.error("Lỗi gửi dữ liệu:", err);
       });
     }
-    /* ===== Báo cáo cuối ca ===== */
+
     function endShiftReport() {
       let summary = {};
       for (let i = 1; i < records.length; i++) {
@@ -1092,7 +1077,6 @@ function checkIfHasPreviousNG(qrcode, currentIndex) {
       alert(report);
     }
 
-    /* ===== Chart ===== */
     function updateChart() {
       const canvas = document.getElementById("chartOKNG");
       if (!canvas) return;
@@ -1131,14 +1115,12 @@ function checkIfHasPreviousNG(qrcode, currentIndex) {
       }
     }
 
-    /* ===== Xóa log chỉ UI ===== */
     function clearLogDisplay() {
       if (!confirm("Bạn có chắc muốn xóa bảng hiển thị? (Dữ liệu vẫn còn lưu trong bộ nhớ)")) return;
       document.querySelector("#logTable tbody").innerHTML = "";
       alert("✅ Đã xóa hiển thị log. Dữ liệu gốc vẫn còn!");
     }
 
-    /* ===== Reset toàn bộ dữ liệu ===== */
     function resetAllData() {
       if (!confirm("⚠️ Bạn có chắc muốn XÓA TOÀN BỘ dữ liệu (records + bộ đếm)?")) return;
 
@@ -1158,7 +1140,6 @@ function checkIfHasPreviousNG(qrcode, currentIndex) {
       alert("✅ Đã reset dữ liệu. Bản backup đã lưu vào localStorage với key: " + backupKey);
     }
 
-    /* ===== Xóa 1 dòng ===== */
     function deleteRecord(index) {
       if (!confirm("Bạn có chắc muốn xóa dòng này?")) return;
 
@@ -1171,49 +1152,45 @@ function checkIfHasPreviousNG(qrcode, currentIndex) {
       const removed = records.splice(index, 1)[0];
       const removedQr = removed[1];
       
-      // Tính lại counts sau khi xóa
       recomputeCountsForShift(currentShift);
       
       saveLocal();
       renderTable();
     }
+
     // ===== PHẦN BÁO CÁO & THỐNG KÊ =====
     const API_URL = "https://script.google.com/macros/s/AKfycbwGCEDo7faBhEh9FCv1ZlrfINyAvfwIg9EbXk-CqwZRYBKVOQJP2hIGjI02JbeWIYJC5A/exec";
     let allData = [];
-    let filteredDataGlobal = []; // 🔹 biến toàn cục lưu kết quả lọc
+    let filteredDataGlobal = [];
     let paretoChart, dailyChart;
     let clusterize = null;
 
     function parseDateString(str){
-  if(!str) return null;
-  str = str.toString().trim();
+      if(!str) return null;
+      str = str.toString().trim();
 
-  // Định dạng dd/mm/yyyy hoặc dd-mm-yyyy
-  const m1 = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-  if(m1){
-    const d = parseInt(m1[1],10);
-    const m = parseInt(m1[2],10) - 1;
-    const y = parseInt(m1[3],10);
-    // 🔹 Tạo Date ở múi giờ local, không bị lùi ngày
-    const date = new Date(y, m, d, 12, 0, 0); // set 12:00 để tránh rớt múi giờ
-    return date;
-  }
+      const m1 = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if(m1){
+        const d = parseInt(m1[1],10);
+        const m = parseInt(m1[2],10) - 1;
+        const y = parseInt(m1[3],10);
+        const date = new Date(y, m, d, 12, 0, 0);
+        return date;
+      }
 
-  // Định dạng yyyy-mm-dd
-  const m2 = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
-  if(m2){
-    const y = parseInt(m2[1],10);
-    const m = parseInt(m2[2],10)-1;
-    const d = parseInt(m2[3],10);
-    return new Date(y,m,d,12,0,0);
-  }
+      const m2 = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+      if(m2){
+        const y = parseInt(m2[1],10);
+        const m = parseInt(m2[2],10)-1;
+        const d = parseInt(m2[3],10);
+        return new Date(y,m,d,12,0,0);
+      }
 
-  // Nếu không khớp, thử parse thông thường
-  const d2 = new Date(str);
-  if(!isNaN(d2)) return new Date(d2.getFullYear(), d2.getMonth(), d2.getDate(), 12, 0, 0);
+      const d2 = new Date(str);
+      if(!isNaN(d2)) return new Date(d2.getFullYear(), d2.getMonth(), d2.getDate(), 12, 0, 0);
 
-  return null;
-}
+      return null;
+    }
 
     function isoDate(d){
       if (!(d instanceof Date) || isNaN(d)) return null;
@@ -1253,7 +1230,6 @@ function checkIfHasPreviousNG(qrcode, currentIndex) {
           populateFilters(allData);
           renderReportTable(allData);
           
-          // Chỉ vẽ biểu đồ nếu có dữ liệu
           if (allData.length > 0) {
             setTimeout(() => {
               drawPareto(allData);
@@ -1275,7 +1251,6 @@ function checkIfHasPreviousNG(qrcode, currentIndex) {
       const maSP = document.getElementById("maSP").value;
       const po = document.getElementById("po").value;
 
-      // 🔹 Lọc dữ liệu từ allData
       filteredDataGlobal = allData.filter(r => {
         let match = true;
 
@@ -1292,62 +1267,58 @@ function checkIfHasPreviousNG(qrcode, currentIndex) {
 
         if (fromDate && ngay < new Date(fromDate)) match = false;
         if (toDate) {
-      const to = new Date(toDate);
-      to.setHours(23, 59, 59, 999); // ✅ mở rộng tới cuối ngày
-      if (ngay > to) match = false;
-    }
+          const to = new Date(toDate);
+          to.setHours(23, 59, 59, 999);
+          if (ngay > to) match = false;
+        }
 
         return match;
       });
 
       renderReportTable(filteredDataGlobal);
       
-      // 🔥 SỬA: Vẽ biểu đồ với dữ liệu đã lọc
       drawPareto(filteredDataGlobal);
       drawDailyChart(filteredDataGlobal);
       
       alert(`✅ Đã lọc được ${filteredDataGlobal.length} dòng. Biểu đồ đã được cập nhật!`);
     }
 
-
     function renderReportTable(data) {
       const rows = data.map(r => {
-  // Lấy giá trị giờ/ngày
-  let gioRaw = r["Giờ"] || r.gio || "";
-  let ngayRaw = r["Ngày"] || r.ngay || "";
+        let gioRaw = r["Giờ"] || r.gio || "";
+        let ngayRaw = r["Ngày"] || r.ngay || "";
 
-  // Chuyển định dạng ISO -> giờ/ngày VN nếu có
-  function formatDateTime(value, type="date") {
-    if (!value) return "";
-    try {
-      const d = new Date(value);
-      if (isNaN(d)) return value;
-      if (type === "time") return d.toLocaleTimeString("vi-VN", { hour12: false });
-      return d.toLocaleDateString("vi-VN");
-    } catch {
-      return value;
-    }
-  }
+        function formatDateTime(value, type="date") {
+          if (!value) return "";
+          try {
+            const d = new Date(value);
+            if (isNaN(d)) return value;
+            if (type === "time") return d.toLocaleTimeString("vi-VN", { hour12: false });
+            return d.toLocaleDateString("vi-VN");
+          } catch {
+            return value;
+          }
+        }
 
-  const gio = formatDateTime(gioRaw, "time");
-  const ngay = formatDateTime(ngayRaw, "date");
+        const gio = formatDateTime(gioRaw, "time");
+        const ngay = formatDateTime(ngayRaw, "date");
 
-  return `
-    <tr>
-      <td>${r["Mã hàng"] || r.maHang || ""}</td>
-      <td>${r["QR code"] || r.qrCode || ""}</td>
-      <td>${r["Phán định"] || r.phanDinh || ""}</td>
-      <td>${r["Mô tả lỗi"] || r.moTaLoi || ""}</td>
-      <td>${gio}</td>
-      <td>${ngay}</td>
-      <td>${r["Số lần xuất hiện"] || r.soLan || ""}</td>
-      <td>${r["Mã Nhân Viên"] || r.maNV || r.User || ""}</td>
-      <td>${r["Ca làm việc"] || r.caLam || r.Shift || ""}</td>
-      <td>${r["PO"] || r.po || ""}</td>
-      <td>${r["Ghi chú"] || r.ghichu || ""}</td>
-    </tr>
-  `;
-});
+        return `
+          <tr>
+            <td>${r["Mã hàng"] || r.maHang || ""}</td>
+            <td>${r["QR code"] || r.qrCode || ""}</td>
+            <td>${r["Phán định"] || r.phanDinh || ""}</td>
+            <td>${r["Mô tả lỗi"] || r.moTaLoi || ""}</td>
+            <td>${gio}</td>
+            <td>${ngay}</td>
+            <td>${r["Số lần xuất hiện"] || r.soLan || ""}</td>
+            <td>${r["Mã Nhân Viên"] || r.maNV || r.User || ""}</td>
+            <td>${r["Ca làm việc"] || r.caLam || r.Shift || ""}</td>
+            <td>${r["PO"] || r.po || ""}</td>
+            <td>${r["Ghi chú"] || r.ghichu || ""}</td>
+          </tr>
+        `;
+      });
 
       if (!clusterize) {
         clusterize = new Clusterize({
@@ -1362,29 +1333,6 @@ function checkIfHasPreviousNG(qrcode, currentIndex) {
       const info = document.getElementById("recordCount");
       if (info) info.textContent = `Tổng: ${data.length} dòng`;
     }
-    
-    function filterChartsByDate() {
-  const from = document.getElementById("chartFrom").value;
-  const to = document.getElementById("chartTo").value;
-
-  if (!from && !to) {
-    drawPareto(allData);
-    drawDailyChart(allData);
-    return;
-  }
-
-  const filtered = allData.filter(r => {
-    const ngayStr = r["Ngày"] || r.ngay;
-    const ngay = parseDateString(ngayStr);
-    if (!ngay) return false;
-    if (from && ngay < new Date(from)) return false;
-    if (to && ngay > new Date(to)) return false;
-    return true;
-  });
-
-  drawPareto(filtered);
-  drawDailyChart(filtered);
-}
 
     function drawPareto(data){
       const canvas = document.getElementById("paretoChart");
@@ -1399,7 +1347,6 @@ function checkIfHasPreviousNG(qrcode, currentIndex) {
         return;
       }
 
-      // 🔥 SỬA: Dùng tham số 'data' thay vì 'allData'
       const loiCount = {};
       data.forEach(r=>{
         const moTaLoi = r["Mô tả lỗi"] || r.moTaLoi || "";
@@ -1417,7 +1364,6 @@ function checkIfHasPreviousNG(qrcode, currentIndex) {
       const cumsum = values.map((sum=>v=>sum+=v)(0));
       const cumPerc = cumsum.map(s=>(s/total*100).toFixed(1));
 
-      // Hủy biểu đồ cũ nếu tồn tại
       if (paretoChart) {
         try {
           paretoChart.destroy();
@@ -1486,7 +1432,6 @@ function checkIfHasPreviousNG(qrcode, currentIndex) {
       const dailyCount = {};
       let minDate = null, maxDate = null;
 
-      // 🔥 SỬA: Dùng tham số 'data' và xử lý tên cột đúng
       data.forEach(r => {
         const ngayStr = r["Ngày"] || r.ngay;
         const phanDinh = r["Phán định"] || r.phanDinh || "";
@@ -1505,7 +1450,6 @@ function checkIfHasPreviousNG(qrcode, currentIndex) {
         }
       });
 
-      // Sinh danh sách ngày liên tục
       const dates = [];
       if (minDate && maxDate) {
         let cur = new Date(minDate);
@@ -1515,18 +1459,15 @@ function checkIfHasPreviousNG(qrcode, currentIndex) {
         }
       }
 
-      // Tính dữ liệu theo ngày
       const okData = dates.map(d => dailyCount[d]?.ok || 0);
       const ngData = dates.map(d => dailyCount[d]?.ng || 0);
       const totalData = dates.map(d => (dailyCount[d]?.ok || 0) + (dailyCount[d]?.ng || 0));
 
-      // 🔹 Tính tỷ lệ % NG/Tổng
       const percNG = dates.map(d => {
         const total = (dailyCount[d]?.ok || 0) + (dailyCount[d]?.ng || 0);
         return total > 0 ? ((dailyCount[d].ng / total) * 100).toFixed(2) : 0;
       });
 
-      // Hủy biểu đồ cũ nếu tồn tại
       if (dailyChart) {
         try {
           dailyChart.destroy();
@@ -1591,17 +1532,15 @@ function checkIfHasPreviousNG(qrcode, currentIndex) {
       }
     }
 
-    // Khởi tạo biểu đồ khi trang được tải
+    // ===== KHỞI TẠO =====
     window.onload = function() {
-      // Tính toán lại counts từ records hiện có
       recomputeCountsForShift(currentShift || "");
       renderTable();
       updateChart();
 
-      // 🔹 Gắn sự kiện cho ô số lượng giao
       document.getElementById("deliveryQty").addEventListener("input", ()=>{
         deliveryTarget = parseInt(document.getElementById("deliveryQty").value) || 0;
-        deliveryCounter = 0; // reset bộ đếm mỗi khi nhập số mới
+        deliveryCounter = 0;
         if (deliveryTarget > 0) {
           document.getElementById("deliveryStatus").textContent = `🔄 Đã đặt mục tiêu: ${deliveryTarget}`;
         } else {
@@ -1609,7 +1548,6 @@ function checkIfHasPreviousNG(qrcode, currentIndex) {
         }
       });
 
-      // 🔹 Lắng nghe khi có thay đổi localStorage từ tab khác
       window.addEventListener("storage", (event) => {
         if (event.key === "records") {
           records = JSON.parse(event.newValue || "[]");
